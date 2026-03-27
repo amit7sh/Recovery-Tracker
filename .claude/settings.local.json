@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l \"c:\\\\Users\\\\Amit\\\\Claude Code/health-tracker/\"*.js \"c:\\\\Users\\\\Amit\\\\Claude Code/health-tracker/\"*.html)"
+    ]
+  }
+}
