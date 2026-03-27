@@ -142,15 +142,15 @@ const App = {
     window.scrollTo(0, 0);
 
     const renders = {
-      dashboard: DashboardPage.render,
-      calcium: CalciumPage.render,
-      symptoms: SymptomsPage.render,
-      medical: MedicalPage.render,
-      medications: MedsPage.render,
-      appointments: ApptsPage.render,
-      articles: ArticlesPage.render,
+      dashboard: () => DashboardPage.render(),
+      calcium: () => CalciumPage.render(),
+      symptoms: () => SymptomsPage.render(),
+      medical: () => MedicalPage.render(),
+      medications: () => MedsPage.render(),
+      appointments: () => ApptsPage.render(),
+      articles: () => ArticlesPage.render(),
     };
-    renders[page]?.call();
+    renders[page]?.();
   },
 
   openModal(title, bodyHtml) {
@@ -537,6 +537,7 @@ const CalciumPage = {
     const dateInput = document.getElementById('cal-date');
     if (!dateInput.value) dateInput.value = todayStr();
     this.refreshLog();
+    this.renderMyFoods();
     this.renderChart();
   },
 
@@ -651,6 +652,10 @@ const CalciumPage = {
           <label class="text-sm font-medium text-gray-700 block mb-1">Amount / serving (optional)</label>
           <input type="text" id="manual-serving" placeholder="e.g. 200g, 1 tablet" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
         </div>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" id="manual-save" class="w-4 h-4 accent-indigo-600" />
+          <span class="text-sm text-gray-700">Save to My Foods for quick access</span>
+        </label>
         <button onclick="CalciumPage.confirmManual()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700 transition-colors">Add to Log</button>
       </div>
     `);
@@ -674,19 +679,91 @@ const CalciumPage = {
     const food = document.getElementById('manual-food').value.trim();
     const calcium_mg = parseFloat(document.getElementById('manual-calcium').value);
     const serving = document.getElementById('manual-serving').value.trim();
+    const saveToMyFoods = document.getElementById('manual-save')?.checked;
     if (!food || !calcium_mg) { showToast('Please fill in food name and calcium amount.'); return; }
     const date = document.getElementById('cal-date').value || todayStr();
     DB.add('calcium', { food, calcium_mg, grams: serving || null, date });
+    if (saveToMyFoods) DB.add('custom_foods', { name: food, calcium_mg, serving: serving || null });
     App.forceCloseModal();
     this.refreshLog();
+    this.renderMyFoods();
     this.renderChart();
-    showToast(`Added ${Math.round(calcium_mg)} mg calcium`);
+    showToast(`Added ${Math.round(calcium_mg)} mg calcium${saveToMyFoods ? ' · Saved to My Foods' : ''}`);
   },
 
   deleteEntry(id) {
     DB.remove('calcium', id);
     this.refreshLog();
     this.renderChart();
+  },
+
+  renderMyFoods() {
+    const foods = DB.get('custom_foods');
+    const el = document.getElementById('cal-my-foods');
+    if (!el) return;
+    if (!foods.length) {
+      el.innerHTML = '<p class="text-sm text-gray-400">No saved foods yet. Create one to quick-add it anytime.</p>';
+      return;
+    }
+    el.innerHTML = foods.map(f => `
+      <div class="flex items-center justify-between p-3 rounded-xl border border-gray-100 bg-slate-50">
+        <div class="flex-1 min-w-0 pr-3">
+          <p class="text-sm font-medium text-gray-800 truncate">${f.name}</p>
+          <p class="text-xs text-gray-400">${Math.round(f.calcium_mg)} mg${f.serving ? ' · ' + f.serving : ''}</p>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button onclick="CalciumPage.quickAddCustomFood(${f.id})" class="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition-colors">Add</button>
+          <button onclick="CalciumPage.deleteCustomFood(${f.id})" class="text-xs text-gray-300 hover:text-red-400 transition-colors">✕</button>
+        </div>
+      </div>
+    `).join('');
+  },
+
+  openSaveFoodForm() {
+    App.openModal('Create Custom Food', `
+      <div class="space-y-4">
+        <div>
+          <label class="text-sm font-medium text-gray-700 block mb-1">Food name</label>
+          <input type="text" id="cf-name" placeholder="e.g. Calcium citrate supplement" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </div>
+        <div>
+          <label class="text-sm font-medium text-gray-700 block mb-1">Calcium per serving (mg)</label>
+          <input type="number" id="cf-calcium" placeholder="e.g. 500" min="1" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </div>
+        <div>
+          <label class="text-sm font-medium text-gray-700 block mb-1">Serving size (optional)</label>
+          <input type="text" id="cf-serving" placeholder="e.g. 200g, 1 tablet, 1 cup" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </div>
+        <button onclick="CalciumPage.saveCustomFood()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700 transition-colors">Save Food</button>
+      </div>
+    `);
+  },
+
+  saveCustomFood() {
+    const name = document.getElementById('cf-name').value.trim();
+    const calcium_mg = parseFloat(document.getElementById('cf-calcium').value);
+    const serving = document.getElementById('cf-serving').value.trim();
+    if (!name || !calcium_mg) { showToast('Please fill in food name and calcium amount.'); return; }
+    DB.add('custom_foods', { name, calcium_mg, serving: serving || null });
+    App.forceCloseModal();
+    this.renderMyFoods();
+    showToast('Food saved ✓');
+  },
+
+  quickAddCustomFood(id) {
+    const food = DB.get('custom_foods').find(f => f.id === id);
+    if (!food) return;
+    const date = document.getElementById('cal-date').value || todayStr();
+    DB.add('calcium', { food: food.name, calcium_mg: food.calcium_mg, grams: food.serving || null, date });
+    this.refreshLog();
+    this.renderChart();
+    showToast(`Added ${Math.round(food.calcium_mg)} mg calcium`);
+  },
+
+  deleteCustomFood(id) {
+    if (!confirm('Remove this food from My Foods?')) return;
+    DB.remove('custom_foods', id);
+    this.renderMyFoods();
   },
 
   renderChart() {
