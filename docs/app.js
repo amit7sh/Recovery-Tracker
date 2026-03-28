@@ -147,6 +147,31 @@ const CloudSync = {
       console.error('Firestore load failed, using local data:', err);
       showToast('Using local data (check connection)');
     }
+    this.listenAll();
+  },
+
+  listenAll() {
+    const collections = ['calcium', 'symptoms', 'medical', 'medications', 'appointments', 'photos', 'custom_foods'];
+    collections.forEach(key => {
+      this._col(key).onSnapshot(snap => {
+        DB._cache[key] = snap.docs.map(d => d.data());
+        localStorage.setItem('ht_' + key, JSON.stringify(DB._cache[key]));
+        if (App.current) this._rerenderCurrent();
+      });
+    });
+  },
+
+  _rerenderCurrent() {
+    const renders = {
+      dashboard: () => DashboardPage.render(),
+      calcium: () => CalciumPage.render(),
+      symptoms: () => SymptomsPage.render(),
+      medical: () => MedicalPage.render(),
+      medications: () => MedsPage.render(),
+      appointments: () => ApptsPage.render(),
+      articles: () => ArticlesPage.render(),
+    };
+    renders[App.current]?.();
   },
 
   saveItem(key, item) {
