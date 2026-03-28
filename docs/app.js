@@ -40,27 +40,124 @@ function showToast(msg, duration = 2500) {
 // ── Storage ───────────────────────────────────────────────────────────────────
 
 const DB = {
+  _cache: {},
+
   get(key) {
+    if (this._cache[key] !== undefined) return this._cache[key];
     try { return JSON.parse(localStorage.getItem('ht_' + key) || '[]'); }
     catch { return []; }
   },
-  set(key, data) {
-    localStorage.setItem('ht_' + key, JSON.stringify(data));
-  },
+
   add(key, item) {
-    const data = this.get(key);
     item.id = Date.now() + Math.random();
     item.createdAt = new Date().toISOString();
-    data.push(item);
-    this.set(key, data);
+    const data = [...this.get(key), item];
+    this._cache[key] = data;
+    localStorage.setItem('ht_' + key, JSON.stringify(data));
+    CloudSync.saveItem(key, item);
     return item;
   },
+
   remove(key, id) {
-    this.set(key, this.get(key).filter(x => x.id !== id));
+    const data = this.get(key).filter(x => x.id !== id);
+    this._cache[key] = data;
+    localStorage.setItem('ht_' + key, JSON.stringify(data));
+    CloudSync.deleteItem(key, id);
   },
+
   update(key, id, patch) {
-    this.set(key, this.get(key).map(x => x.id === id ? { ...x, ...patch } : x));
+    const data = this.get(key).map(x => x.id === id ? { ...x, ...patch } : x);
+    this._cache[key] = data;
+    localStorage.setItem('ht_' + key, JSON.stringify(data));
+    const updated = data.find(x => x.id === id);
+    if (updated) CloudSync.saveItem(key, updated);
   }
+};
+
+// ── Cloud Sync (Firebase) ─────────────────────────────────────────────────────
+
+const CloudSync = {
+  uid: null,
+  db: null,
+  auth: null,
+
+  init() {
+    const firebaseConfig = {
+      apiKey: "AIzaSyCWerPRQuuP9tybXrW7QrwoqTsBKiY2eOs",
+      authDomain: "health-tracker-b2e8f.firebaseapp.com",
+      projectId: "health-tracker-b2e8f",
+      storageBucket: "health-tracker-b2e8f.firebasestorage.app",
+      messagingSenderId: "580343331578",
+      appId: "1:580343331578:web:2f8f10bde70e26d3f96743"
+    };
+    firebase.initializeApp(firebaseConfig);
+    this.auth = firebase.auth();
+    this.db = firebase.firestore();
+
+    this.auth.onAuthStateChanged(async user => {
+      if (user) {
+        this.uid = user.uid;
+        document.getElementById('auth-overlay').classList.add('hidden');
+        document.getElementById('sidebar-user-name').textContent = user.displayName?.split(' ')[0] || 'You';
+        await this.loadAll();
+        App.navigate('dashboard');
+        if ('Notification' in window && Notification.permission === 'granted') {
+          ApptsPage.scheduleNotifications();
+        }
+      } else {
+        this.uid = null;
+        document.getElementById('auth-overlay').classList.remove('hidden');
+      }
+    });
+  },
+
+  signIn() {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    this.auth.signInWithPopup(provider).catch(() => {
+      this.auth.signInWithRedirect(provider);
+    });
+  },
+
+  signOut() {
+    if (!confirm('Sign out? Your data stays saved in the cloud.')) return;
+    this.auth.signOut();
+  },
+
+  _col(key) {
+    return this.db.collection('users').doc(this.uid).collection(key);
+  },
+
+  async loadAll() {
+    const collections = ['calcium', 'symptoms', 'medical', 'medications', 'appointments', 'photos', 'custom_foods'];
+    try {
+      await Promise.all(collections.map(async key => {
+        const snap = await this._col(key).get();
+        if (!snap.empty) {
+          DB._cache[key] = snap.docs.map(d => d.data());
+        } else {
+          // First sign-in — migrate any existing localStorage data to cloud
+          const local = (() => { try { return JSON.parse(localStorage.getItem('ht_' + key) || '[]'); } catch { return []; } })();
+          DB._cache[key] = local;
+          if (local.length) {
+            await Promise.all(local.map(item => this._col(key).doc(String(item.id)).set(item)));
+          }
+        }
+      }));
+    } catch (err) {
+      console.error('Firestore load failed, using local data:', err);
+      showToast('Using local data (check connection)');
+    }
+  },
+
+  saveItem(key, item) {
+    if (!this.uid || !this.db) return;
+    this._col(key).doc(String(item.id)).set(item).catch(console.error);
+  },
+
+  deleteItem(key, id) {
+    if (!this.uid || !this.db) return;
+    this._col(key).doc(String(id)).delete().catch(console.error);
+  },
 };
 
 // ── File Storage (IndexedDB for photos & attachments) ─────────────────────────
@@ -1644,9 +1741,4 @@ document.querySelectorAll('.nav-btn[data-page]').forEach(btn => {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
-App.navigate('dashboard');
-
-// Check appointment reminders on load
-if ('Notification' in window && Notification.permission === 'granted') {
-  ApptsPage.scheduleNotifications();
-}
+CloudSync.init();
