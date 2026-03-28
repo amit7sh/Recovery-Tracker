@@ -181,7 +181,9 @@ const CloudSync = {
 
   deleteItem(key, id) {
     if (!this.uid || !this.db) return;
-    this._col(key).doc(String(id)).delete().catch(console.error);
+    this._col(key).where('id', '==', id).get()
+      .then(snap => Promise.all(snap.docs.map(doc => doc.ref.delete())))
+      .catch(console.error);
   },
 };
 
