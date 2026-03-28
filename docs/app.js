@@ -409,7 +409,7 @@ const CalendarWidget = {
     const events = {};
     const add = (dateStr, type, item) => {
       if (!dateStr) return;
-      if (!events[dateStr]) events[dateStr] = { appts: [], symptoms: [], calcium: [], meds: [], photos: [] };
+      if (!events[dateStr]) events[dateStr] = { appts: [], symptoms: [], calcium: [], meds: [], photos: [], medical: [] };
       events[dateStr][type].push(item);
     };
 
@@ -418,6 +418,7 @@ const CalendarWidget = {
     DB.get('calcium').forEach(c => add(c.date, 'calcium', c));
     DB.get('medications').forEach(m => (m.takenDates || []).forEach(d => add(d, 'meds', m)));
     DB.get('photos').forEach(p => add(p.date, 'photos', p));
+    DB.get('medical').forEach(r => add(r.date, 'medical', r));
 
     const today = todayStr();
     const firstDay = new Date(year, month, 1).getDay();
@@ -434,12 +435,13 @@ const CalendarWidget = {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const ev = events[dateStr];
       const isToday = dateStr === today;
-      const hasAppt   = ev?.appts?.length > 0;
-      const hasSym    = ev?.symptoms?.length > 0;
-      const hasCal    = ev?.calcium?.length > 0;
-      const hasMeds   = ev?.meds?.length > 0;
-      const hasPhotos = ev?.photos?.length > 0;
-      const hasAny    = hasAppt || hasSym || hasCal || hasMeds || hasPhotos;
+      const hasAppt    = ev?.appts?.length > 0;
+      const hasSym     = ev?.symptoms?.length > 0;
+      const hasCal     = ev?.calcium?.length > 0;
+      const hasMeds    = ev?.meds?.length > 0;
+      const hasPhotos  = ev?.photos?.length > 0;
+      const hasMedical = ev?.medical?.length > 0;
+      const hasAny     = hasAppt || hasSym || hasCal || hasMeds || hasPhotos || hasMedical;
 
       const baseCls = isToday
         ? 'bg-indigo-600 text-white'
@@ -452,11 +454,12 @@ const CalendarWidget = {
              class="relative flex flex-col items-center justify-center py-1.5 rounded-lg transition-colors ${baseCls}">
           <span class="text-xs ${isToday ? 'font-bold' : 'text-gray-700'}">${d}</span>
           ${hasAny ? `<div class="flex gap-0.5 mt-0.5">
-            ${hasAppt   ? `<span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white opacity-80' : 'bg-violet-500'}"></span>` : ''}
-            ${hasSym    ? `<span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white opacity-80' : 'bg-pink-500'}"></span>` : ''}
-            ${hasCal    ? `<span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white opacity-80' : 'bg-emerald-500'}"></span>` : ''}
-            ${hasMeds   ? `<span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white opacity-80' : 'bg-amber-500'}"></span>` : ''}
-            ${hasPhotos ? `<span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white opacity-80' : 'bg-sky-500'}"></span>` : ''}
+            ${hasAppt    ? `<span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white opacity-80' : 'bg-violet-500'}"></span>` : ''}
+            ${hasSym     ? `<span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white opacity-80' : 'bg-pink-500'}"></span>` : ''}
+            ${hasCal     ? `<span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white opacity-80' : 'bg-emerald-500'}"></span>` : ''}
+            ${hasMeds    ? `<span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white opacity-80' : 'bg-amber-500'}"></span>` : ''}
+            ${hasPhotos  ? `<span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white opacity-80' : 'bg-sky-500'}"></span>` : ''}
+            ${hasMedical ? `<span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white opacity-80' : 'bg-teal-500'}"></span>` : ''}
           </div>` : ''}
         </div>
       `);
@@ -480,8 +483,9 @@ const CalendarWidget = {
     const symptoms = DB.get('symptoms').filter(s => s.date === dateStr);
     const calcium  = DB.get('calcium').filter(c => c.date === dateStr);
     const meds     = DB.get('medications').filter(m => (m.takenDates || []).includes(dateStr));
+    const medical  = DB.get('medical').filter(r => r.date === dateStr);
 
-    const noActivity = !appts.length && !symptoms.length && !calcium.length && !meds.length;
+    const noActivity = !appts.length && !symptoms.length && !calcium.length && !meds.length && !medical.length;
     let body = noActivity
       ? '<p class="text-sm text-gray-400 py-6 text-center">No activity recorded for this day.</p>'
       : '';
@@ -544,6 +548,21 @@ const CalendarWidget = {
               <span class="text-gray-700">${m.name}${m.dose ? ' — ' + m.dose : ''}</span>
             </div>`).join('')}
         </div>
+      </div>`;
+    }
+
+    if (medical.length) {
+      body += `<div class="mb-5">
+        <p class="text-xs font-semibold uppercase tracking-wide text-teal-600 mb-2">Medical Records</p>
+        ${medical.map(r => `
+          <div class="bg-teal-50 rounded-xl p-3 mb-2">
+            <p class="text-sm font-semibold text-gray-800">${r.title || 'Record'}</p>
+            ${r.doctor    ? `<p class="text-xs text-gray-500 mt-0.5">Dr. ${r.doctor}</p>` : ''}
+            ${r.specialty ? `<p class="text-xs text-gray-400">${r.specialty}</p>` : ''}
+            ${r.values    ? `<p class="text-xs text-indigo-700 font-medium mt-1">📊 ${r.values}</p>` : ''}
+            ${r.notes     ? `<p class="text-xs text-gray-600 mt-1 italic">${r.notes}</p>` : ''}
+            ${(r.attachments||[]).length ? `<p class="text-xs text-sky-600 mt-1 cursor-pointer hover:underline" onclick="MedicalPage.openAttachments(${r.id})">📎 ${r.attachments.length} attachment${r.attachments.length > 1 ? 's' : ''}</p>` : ''}
+          </div>`).join('')}
       </div>`;
     }
 
@@ -1165,7 +1184,9 @@ const MedicalPage = {
       el.innerHTML = '<div class="text-center py-10 text-gray-400 text-sm">No records yet. Add your first one!</div>';
       return;
     }
-    el.innerHTML = records.map(r => `
+    el.innerHTML = records.map(r => {
+      const attachCount = (r.attachments || []).length;
+      return `
       <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 fade-in">
         <div class="flex items-start justify-between mb-2">
           <div>
@@ -1178,13 +1199,21 @@ const MedicalPage = {
           </div>
           <div class="text-right shrink-0 ml-3">
             <p class="text-sm text-gray-500">${fmtDate(r.date)}</p>
-            <button onclick="MedicalPage.delete(${r.id})" class="text-xs text-gray-300 hover:text-red-400 mt-1">Delete</button>
+            <div class="flex flex-col gap-1 mt-1 items-end">
+              ${attachCount ? `<span class="text-xs text-sky-600 cursor-pointer hover:underline" onclick="MedicalPage.openAttachments(${r.id})">📎 ${attachCount} file${attachCount > 1 ? 's' : ''}</span>` : ''}
+              <label class="text-xs bg-sky-50 text-sky-600 px-2 py-1 rounded-lg hover:bg-sky-100 cursor-pointer">
+                📎 Attach
+                <input type="file" accept="image/*,application/pdf,.doc,.docx" multiple class="hidden"
+                       onchange="MedicalPage.handleAttachments(this, ${r.id})" />
+              </label>
+              <button onclick="MedicalPage.delete(${r.id})" class="text-xs text-gray-300 hover:text-red-400">Delete</button>
+            </div>
           </div>
         </div>
         ${r.notes ? `<p class="text-sm text-gray-600 mt-2 leading-relaxed bg-gray-50 rounded-xl p-3">${r.notes}</p>` : ''}
         ${r.values ? `<p class="text-sm text-indigo-700 mt-2 font-medium">📊 ${r.values}</p>` : ''}
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   },
 
   openForm(record) {
@@ -1250,6 +1279,69 @@ const MedicalPage = {
     App.forceCloseModal();
     this.renderList();
     showToast('Record saved ✓');
+  },
+
+  handleAttachments(input, recordId) {
+    const files = Array.from(input.files);
+    if (!files.length) return;
+    let saved = 0;
+    files.forEach(file => {
+      FileDB.save(file).then(fileId => {
+        const record = DB.get('medical').find(r => r.id === recordId);
+        const attachments = [...(record?.attachments || []), fileId];
+        DB.update('medical', recordId, { attachments });
+        saved++;
+        if (saved === files.length) {
+          showToast(`${saved} file${saved > 1 ? 's' : ''} attached ✓`);
+          this.renderList();
+        }
+      }).catch(() => showToast('Failed to save file.'));
+    });
+    input.value = '';
+  },
+
+  openAttachments(recordId) {
+    const record = DB.get('medical').find(r => r.id === recordId);
+    if (!record) return;
+    const fileIds = record.attachments || [];
+    if (!fileIds.length) { showToast('No attachments yet.'); return; }
+
+    App.openModal(`Files — ${record.title || 'Record'}`, `
+      <div id="med-attachments-grid" class="space-y-2">
+        <p class="text-xs text-gray-400">Loading files…</p>
+      </div>`);
+
+    const grid = document.getElementById('med-attachments-grid');
+    grid.innerHTML = '';
+    fileIds.forEach(fileId => {
+      FileDB.get(fileId).then(file => {
+        if (!file || !grid) return;
+        const isImage = file.type.startsWith('image/');
+        grid.insertAdjacentHTML('beforeend', `
+          <div class="flex items-center gap-3 p-3 border border-gray-100 rounded-xl group">
+            ${isImage
+              ? `<img src="${file.dataUrl}" class="w-14 h-14 object-cover rounded-lg flex-shrink-0 cursor-pointer"
+                       onclick="CalendarWidget.viewFile('${fileId}')" />`
+              : `<div class="w-14 h-14 flex items-center justify-center bg-gray-100 rounded-lg flex-shrink-0 cursor-pointer text-2xl"
+                       onclick="CalendarWidget.viewFile('${fileId}')">📄</div>`}
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium text-gray-800 truncate">${file.name}</p>
+              <p class="text-xs text-gray-400">${(file.size / 1024).toFixed(0)} KB</p>
+            </div>
+            <button onclick="MedicalPage.deleteAttachment(${recordId}, '${fileId}')"
+                    class="text-xs text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+          </div>`);
+      });
+    });
+  },
+
+  deleteAttachment(recordId, fileId) {
+    const record = DB.get('medical').find(r => r.id === recordId);
+    if (!record) return;
+    DB.update('medical', recordId, { attachments: (record.attachments || []).filter(id => id !== fileId) });
+    FileDB.delete(fileId);
+    this.openAttachments(recordId);
+    this.renderList();
   },
 
   delete(id) {
