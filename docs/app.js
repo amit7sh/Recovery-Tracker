@@ -777,10 +777,11 @@ const CalciumPage = {
       <div class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
         <div>
           <p class="text-sm font-medium text-gray-800">${e.food}</p>
-          ${e.grams ? `<p class="text-xs text-gray-400">${e.grams}g</p>` : ''}
+          ${e.grams ? `<p class="text-xs text-gray-400">${e.grams}</p>` : ''}
         </div>
         <div class="flex items-center gap-3">
           <span class="text-sm font-bold text-indigo-600">${Math.round(e.calcium_mg)} mg</span>
+          <button onclick="CalciumPage.editEntry(${e.id})" class="text-xs text-indigo-400 hover:text-indigo-600">Edit</button>
           <button onclick="CalciumPage.deleteEntry(${e.id})" class="text-gray-300 hover:text-red-400 transition-colors text-sm">✕</button>
         </div>
       </div>
@@ -906,6 +907,45 @@ const CalciumPage = {
     this.renderMyFoods();
     this.renderChart();
     showToast(`Added ${Math.round(calcium_mg)} mg calcium${saveToMyFoods ? ' · Saved to My Foods' : ''}`);
+  },
+
+  editEntry(id) {
+    const entry = DB.get('calcium').find(e => e.id === id);
+    if (!entry) return;
+    App.openModal('Edit Entry', `
+      <div class="space-y-4">
+        <div>
+          <label class="text-sm font-medium text-gray-700 block mb-1">Food name</label>
+          <input type="text" id="edit-food" value="${entry.food.replace(/"/g, '&quot;')}" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </div>
+        <div>
+          <label class="text-sm font-medium text-gray-700 block mb-1">Calcium amount (mg)</label>
+          <input type="number" id="edit-calcium" value="${Math.round(entry.calcium_mg)}" min="1" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </div>
+        <div>
+          <label class="text-sm font-medium text-gray-700 block mb-1">Amount / serving (optional)</label>
+          <input type="text" id="edit-serving" value="${entry.grams || ''}" placeholder="e.g. 200g, 1 tablet" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </div>
+        <div>
+          <label class="text-sm font-medium text-gray-700 block mb-1">Date</label>
+          <input type="date" id="edit-date" value="${entry.date}" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </div>
+        <button onclick="CalciumPage.confirmEdit(${entry.id})" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700 transition-colors">Save Changes</button>
+      </div>
+    `);
+  },
+
+  confirmEdit(id) {
+    const food = document.getElementById('edit-food').value.trim();
+    const calcium_mg = parseFloat(document.getElementById('edit-calcium').value);
+    const grams = document.getElementById('edit-serving').value.trim();
+    const date = document.getElementById('edit-date').value;
+    if (!food || !calcium_mg) { showToast('Please fill in food name and calcium amount.'); return; }
+    DB.update('calcium', id, { food, calcium_mg, grams: grams || null, date });
+    App.forceCloseModal();
+    this.refreshLog();
+    this.renderChart();
+    showToast('Entry updated ✓');
   },
 
   deleteEntry(id) {
@@ -1075,8 +1115,14 @@ const SymptomsPage = {
     const weightBearing = document.getElementById('sym-weight-bearing').value;
     const notes = document.getElementById('sym-notes').value.trim();
 
-    DB.add('symptoms', { date, pain, mobility, energy, mood, weightBearing, notes });
-    showToast('Symptom log saved ✓');
+    if (this._editId) {
+      DB.update('symptoms', this._editId, { date, pain, mobility, energy, mood, weightBearing, notes });
+      this._editId = null;
+      showToast('Entry updated ✓');
+    } else {
+      DB.add('symptoms', { date, pain, mobility, energy, mood, weightBearing, notes });
+      showToast('Symptom log saved ✓');
+    }
 
     // Reset
     document.getElementById('sym-date').value = todayStr();
@@ -1106,7 +1152,10 @@ const SymptomsPage = {
       <div class="border border-gray-100 rounded-xl p-4">
         <div class="flex items-center justify-between mb-2">
           <span class="text-sm font-semibold text-gray-700">${fmtDate(s.date)}</span>
-          <button onclick="SymptomsPage.deleteEntry(${s.id})" class="text-gray-300 hover:text-red-400 text-sm">✕</button>
+          <div class="flex items-center gap-3">
+            <button onclick="SymptomsPage.edit(${s.id})" class="text-xs text-indigo-400 hover:text-indigo-600">Edit</button>
+            <button onclick="SymptomsPage.deleteEntry(${s.id})" class="text-gray-300 hover:text-red-400 text-sm">✕</button>
+          </div>
         </div>
         <div class="grid grid-cols-4 gap-2 mb-2">
           <div class="text-center">
@@ -1130,6 +1179,25 @@ const SymptomsPage = {
         ${s.notes ? `<p class="text-xs text-gray-500 italic">"${s.notes}"</p>` : ''}
       </div>
     `).join('');
+  },
+
+  edit(id) {
+    const s = DB.get('symptoms').find(e => e.id === id);
+    if (!s) return;
+    document.getElementById('sym-date').value = s.date;
+    document.getElementById('sym-pain').value = s.pain;
+    document.getElementById('sym-pain-val').textContent = s.pain;
+    document.getElementById('sym-mobility').value = s.mobility;
+    document.getElementById('sym-mobility-val').textContent = s.mobility;
+    document.getElementById('sym-energy').value = s.energy;
+    document.getElementById('sym-energy-val').textContent = s.energy;
+    document.getElementById('sym-mood').value = s.mood;
+    document.getElementById('sym-mood-val').textContent = s.mood;
+    document.getElementById('sym-weight-bearing').value = s.weightBearing || 'none';
+    document.getElementById('sym-notes').value = s.notes || '';
+    this._editId = id;
+    window.scrollTo(0, 0);
+    showToast('Edit your entry above and tap Save');
   },
 
   deleteEntry(id) {
@@ -1475,62 +1543,71 @@ const MedsPage = {
           ${m.notes ? `<p class="text-xs text-gray-400 italic mt-1">${m.notes}</p>` : ''}
           ${m.startDate ? `<p class="text-xs text-gray-400">Started: ${fmtDate(m.startDate)}</p>` : ''}
         </div>
-        <button onclick="MedsPage.delete(${m.id})" class="text-gray-300 hover:text-red-400 text-sm ml-3 shrink-0">✕</button>
+        <div class="flex items-center gap-3 ml-3 shrink-0">
+          <button onclick="MedsPage.edit(${m.id})" class="text-xs text-indigo-400 hover:text-indigo-600">Edit</button>
+          <button onclick="MedsPage.delete(${m.id})" class="text-gray-300 hover:text-red-400 text-sm">✕</button>
+        </div>
       </div>
     `).join('');
   },
 
-  openForm() {
-    App.openModal('Add Medication / Supplement', `
+  edit(id) {
+    const med = DB.get('medications').find(m => m.id === id);
+    if (med) this.openForm(med);
+  },
+
+  openForm(med) {
+    const m = med || {};
+    const freqs = ['Once daily', 'Twice daily', 'Three times daily', 'With meals', 'As needed', 'Weekly'];
+    App.openModal(med ? 'Edit Medication' : 'Add Medication / Supplement', `
       <div class="space-y-4">
         <div>
           <label class="text-sm font-medium text-gray-700 block mb-1">Name</label>
-          <input type="text" id="med-name" placeholder="e.g. Calcium Citrate, Vitamin D3, Iron" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+          <input type="text" id="med-name" value="${m.name || ''}" placeholder="e.g. Calcium Citrate, Vitamin D3, Iron" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="text-sm font-medium text-gray-700 block mb-1">Dose</label>
-            <input type="text" id="med-dose" placeholder="e.g. 500mg" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+            <input type="text" id="med-dose" value="${m.dose || ''}" placeholder="e.g. 500mg" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
           </div>
           <div>
             <label class="text-sm font-medium text-gray-700 block mb-1">Frequency</label>
             <select id="med-freq" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-              <option value="Once daily">Once daily</option>
-              <option value="Twice daily">Twice daily</option>
-              <option value="Three times daily">Three times daily</option>
-              <option value="With meals">With meals</option>
-              <option value="As needed">As needed</option>
-              <option value="Weekly">Weekly</option>
+              ${freqs.map(f => `<option value="${f}" ${m.frequency === f ? 'selected' : ''}>${f}</option>`).join('')}
             </select>
           </div>
         </div>
         <div>
           <label class="text-sm font-medium text-gray-700 block mb-1">Start Date</label>
-          <input type="date" id="med-start" value="${todayStr()}" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+          <input type="date" id="med-start" value="${m.startDate || todayStr()}" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
         </div>
         <div>
           <label class="text-sm font-medium text-gray-700 block mb-1">Notes</label>
-          <textarea id="med-notes-input" rows="2" placeholder="e.g. Take with food, prescribed by Dr. X" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"></textarea>
+          <textarea id="med-notes-input" rows="2" placeholder="e.g. Take with food, prescribed by Dr. X" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none">${m.notes || ''}</textarea>
         </div>
-        <button onclick="MedsPage.save()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700 transition-colors">Add Medication</button>
+        <button onclick="MedsPage.save(${m.id || 'null'})" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700 transition-colors">${med ? 'Save Changes' : 'Add Medication'}</button>
       </div>
     `);
   },
 
-  save() {
+  save(editId) {
     const name = document.getElementById('med-name').value.trim();
     if (!name) { showToast('Please enter a medication name.'); return; }
-    DB.add('medications', {
+    const entry = {
       name,
       dose: document.getElementById('med-dose').value.trim(),
       frequency: document.getElementById('med-freq').value,
       startDate: document.getElementById('med-start').value,
       notes: document.getElementById('med-notes-input').value.trim(),
-      takenDates: [],
-    });
+    };
+    if (editId) {
+      DB.update('medications', editId, entry);
+    } else {
+      DB.add('medications', { ...entry, takenDates: [] });
+    }
     App.forceCloseModal();
     this.render();
-    showToast('Medication added ✓');
+    showToast(editId ? 'Medication updated ✓' : 'Medication added ✓');
   },
 
   delete(id) {
@@ -1632,6 +1709,7 @@ const ApptsPage = {
               <input type="file" accept="image/*,application/pdf,.doc,.docx" multiple class="hidden"
                      onchange="ApptsPage.handleAttachments(this, ${a.id})" />
             </label>
+            <button onclick="ApptsPage.edit(${a.id})" class="text-xs text-indigo-400 hover:text-indigo-600 text-center">Edit</button>
             <button onclick="ApptsPage.delete(${a.id})" class="text-xs text-gray-300 hover:text-red-400 text-center">Delete</button>
           </div>
         </div>
@@ -1643,57 +1721,67 @@ const ApptsPage = {
     this.renderLists();
   },
 
-  openForm() {
-    App.openModal('Add Appointment', `
+  edit(id) {
+    const appt = DB.get('appointments').find(a => a.id === id);
+    if (appt) this.openForm(appt);
+  },
+
+  openForm(appt) {
+    const a = appt || {};
+    App.openModal(appt ? 'Edit Appointment' : 'Add Appointment', `
       <div class="space-y-4">
         <div>
           <label class="text-sm font-medium text-gray-700 block mb-1">Type / Specialty</label>
           <select id="appt-type" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-            ${APPT_TYPES.map(t => `<option value="${t}">${t}</option>`).join('')}
+            ${APPT_TYPES.map(t => `<option value="${t}" ${a.type === t ? 'selected' : ''}>${t}</option>`).join('')}
           </select>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="text-sm font-medium text-gray-700 block mb-1">Date</label>
-            <input type="date" id="appt-date" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+            <input type="date" id="appt-date" value="${a.date || ''}" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
           </div>
           <div>
             <label class="text-sm font-medium text-gray-700 block mb-1">Time</label>
-            <input type="time" id="appt-time" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+            <input type="time" id="appt-time" value="${a.time || ''}" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
           </div>
         </div>
         <div>
           <label class="text-sm font-medium text-gray-700 block mb-1">Doctor</label>
-          <input type="text" id="appt-doctor" placeholder="Dr. Name" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+          <input type="text" id="appt-doctor" value="${a.doctor || ''}" placeholder="Dr. Name" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
         </div>
         <div>
           <label class="text-sm font-medium text-gray-700 block mb-1">Location / Clinic</label>
-          <input type="text" id="appt-location" placeholder="Hospital or clinic name" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+          <input type="text" id="appt-location" value="${a.location || ''}" placeholder="Hospital or clinic name" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
         </div>
         <div>
           <label class="text-sm font-medium text-gray-700 block mb-1">Notes</label>
-          <textarea id="appt-notes" rows="3" placeholder="Questions to ask, things to bring, purpose of visit..." class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"></textarea>
+          <textarea id="appt-notes" rows="3" placeholder="Questions to ask, things to bring, purpose of visit..." class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none">${a.notes || ''}</textarea>
         </div>
-        <button onclick="ApptsPage.save()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700 transition-colors">Save Appointment</button>
+        <button onclick="ApptsPage.save(${a.id || 'null'})" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700 transition-colors">${appt ? 'Save Changes' : 'Save Appointment'}</button>
       </div>
     `);
   },
 
-  save() {
+  save(editId) {
     const date = document.getElementById('appt-date').value;
     if (!date) { showToast('Please select a date.'); return; }
-    DB.add('appointments', {
+    const entry = {
       type: document.getElementById('appt-type').value,
       date,
       time: document.getElementById('appt-time').value,
       doctor: document.getElementById('appt-doctor').value.trim(),
       location: document.getElementById('appt-location').value.trim(),
       notes: document.getElementById('appt-notes').value.trim(),
-      done: false,
-    });
+    };
+    if (editId) {
+      DB.update('appointments', editId, entry);
+    } else {
+      DB.add('appointments', { ...entry, done: false });
+    }
     App.forceCloseModal();
     this.renderLists();
-    showToast('Appointment saved ✓');
+    showToast(editId ? 'Appointment updated ✓' : 'Appointment saved ✓');
   },
 
   delete(id) {
