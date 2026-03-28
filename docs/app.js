@@ -80,6 +80,7 @@ const CloudSync = {
   uid: null,
   db: null,
   auth: null,
+  isShared: false,
 
   init() {
     const firebaseConfig = {
@@ -96,9 +97,21 @@ const CloudSync = {
 
     this.auth.onAuthStateChanged(async user => {
       if (user) {
-        this.uid = user.uid;
         document.getElementById('auth-overlay').classList.add('hidden');
-        document.getElementById('sidebar-user-name').textContent = user.displayName?.split(' ')[0] || 'You';
+        // Check if this user has been invited to share someone else's data
+        const inviteDoc = await this.db.collection('invites').doc(user.email).get();
+        if (inviteDoc.exists) {
+          const { ownerUid, ownerName } = inviteDoc.data();
+          this.uid = ownerUid;
+          this.isShared = true;
+          document.getElementById('sidebar-user-name').textContent = `${ownerName}'s tracker`;
+          document.getElementById('sidebar-sync-label').textContent = '👁 Shared access';
+          document.getElementById('share-access-btn').classList.add('hidden');
+        } else {
+          this.uid = user.uid;
+          this.isShared = false;
+          document.getElementById('sidebar-user-name').textContent = user.displayName?.split(' ')[0] || 'You';
+        }
         await this.loadAll();
         App.navigate('dashboard');
         if ('Notification' in window && Notification.permission === 'granted') {
@@ -184,6 +197,60 @@ const CloudSync = {
     this._col(key).where('id', '==', id).get()
       .then(snap => Promise.all(snap.docs.map(doc => doc.ref.delete())))
       .catch(console.error);
+  },
+
+  async openAccessModal() {
+    const metaSnap = await this.db.collection('users').doc(this.uid).collection('_meta').doc('access').get();
+    const sharedWith = metaSnap.exists ? (metaSnap.data().sharedWith || []) : [];
+    App.openModal('Share Access', `
+      <div class="space-y-4">
+        <p class="text-sm text-gray-500">Anyone you invite can view and edit all your data. They just sign in with Google at the app URL.</p>
+        <div class="space-y-2" id="shared-list">
+          ${sharedWith.length
+            ? sharedWith.map(email => `
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                  <span class="text-sm text-gray-700">${email}</span>
+                  <button onclick="CloudSync.removeSharedUser('${email}')" class="text-xs text-red-400 hover:text-red-600">Remove</button>
+                </div>`).join('')
+            : '<p class="text-sm text-gray-400">No one has access yet.</p>'}
+        </div>
+        <div class="flex gap-2">
+          <input type="email" id="share-email" placeholder="theirname@gmail.com"
+                 class="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+          <button onclick="CloudSync.addSharedUser()" class="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm hover:bg-indigo-700">Invite</button>
+        </div>
+        <p class="text-xs text-gray-400">Send them the app link after adding their email. They sign in with Google and will see your data automatically.</p>
+      </div>
+    `);
+  },
+
+  async addSharedUser() {
+    const email = document.getElementById('share-email').value.trim().toLowerCase();
+    if (!email || !email.includes('@')) { showToast('Please enter a valid email.'); return; }
+    const ownerName = this.auth.currentUser.displayName?.split(' ')[0] || 'Your partner';
+    // Write invite so they can find it on sign-in
+    await this.db.collection('invites').doc(email).set({ ownerUid: this.uid, ownerName });
+    // Track the list so you can see/revoke who has access
+    const metaRef = this.db.collection('users').doc(this.uid).collection('_meta').doc('access');
+    const metaSnap = await metaRef.get();
+    const existing = metaSnap.exists ? (metaSnap.data().sharedWith || []) : [];
+    if (!existing.includes(email)) {
+      await metaRef.set({ sharedWith: [...existing, email] });
+    }
+    showToast(`${email} can now access your data ✓`);
+    this.openAccessModal();
+  },
+
+  async removeSharedUser(email) {
+    await this.db.collection('invites').doc(email).delete();
+    const metaRef = this.db.collection('users').doc(this.uid).collection('_meta').doc('access');
+    const metaSnap = await metaRef.get();
+    if (metaSnap.exists) {
+      const updated = (metaSnap.data().sharedWith || []).filter(e => e !== email);
+      await metaRef.set({ sharedWith: updated });
+    }
+    showToast(`Access removed for ${email}`);
+    this.openAccessModal();
   },
 };
 
