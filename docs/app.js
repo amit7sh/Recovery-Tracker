@@ -505,14 +505,32 @@ const CalendarWidget = {
   viewFile(fileId) {
     FileDB.get(fileId).then(file => {
       if (!file) return;
-      const win = window.open();
+      const arr = file.dataUrl.split(',');
+      const mime = arr[0].match(/:(.*?);/)[1];
+      const bstr = atob(arr[1]);
+      const u8arr = new Uint8Array(bstr.length);
+      for (let i = 0; i < bstr.length; i++) u8arr[i] = bstr.charCodeAt(i);
+      const blobUrl = URL.createObjectURL(new Blob([u8arr], { type: mime }));
+
       if (file.type.startsWith('image/')) {
-        win.document.write(`<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh">
-          <img src="${file.dataUrl}" style="max-width:100%;max-height:100vh;object-fit:contain" /></body></html>`);
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:9999;display:flex;align-items:center;justify-content:center;';
+        const close = () => { document.body.removeChild(overlay); URL.revokeObjectURL(blobUrl); };
+        overlay.innerHTML = `
+          <button style="position:absolute;top:16px;right:16px;background:rgba(255,255,255,0.15);color:#fff;border:none;border-radius:50%;width:40px;height:40px;font-size:22px;cursor:pointer;line-height:1;">✕</button>
+          <img src="${blobUrl}" style="max-width:100%;max-height:100vh;object-fit:contain;padding:56px 16px 16px;" />`;
+        overlay.querySelector('button').onclick = close;
+        overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+        document.body.appendChild(overlay);
       } else {
-        win.document.write(`<html><body style="margin:0"><iframe src="${file.dataUrl}" style="width:100%;height:100vh;border:none"></iframe></body></html>`);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = file.name || 'attachment';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
       }
-      win.document.close();
     });
   },
 
