@@ -1262,7 +1262,8 @@ const MedicalPage = {
                 <input type="file" accept="image/*,application/pdf,.doc,.docx" multiple class="hidden"
                        onchange="MedicalPage.handleAttachments(this, ${r.id})" />
               </label>
-              <button onclick="MedicalPage.delete(${r.id})" class="text-xs text-gray-300 hover:text-red-400">Delete</button>
+              <button onclick="MedicalPage.edit(${r.id})" class="text-xs text-indigo-400 hover:text-indigo-600">Edit</button>
+          <button onclick="MedicalPage.delete(${r.id})" class="text-xs text-gray-300 hover:text-red-400">Delete</button>
             </div>
           </div>
         </div>
@@ -1270,6 +1271,11 @@ const MedicalPage = {
         ${r.values ? `<p class="text-sm text-indigo-700 mt-2 font-medium">📊 ${r.values}</p>` : ''}
       </div>`;
     }).join('');
+  },
+
+  edit(id) {
+    const record = DB.get('medical').find(r => r.id === id);
+    if (record) this.openForm(record);
   },
 
   openForm(record) {
