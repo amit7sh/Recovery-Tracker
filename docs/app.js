@@ -204,18 +204,27 @@ const FileDB = {
     });
   },
 
+  _cloudCol() {
+    return CloudSync.db.collection('users').doc(CloudSync.uid).collection('files');
+  },
+
   save(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = e => {
-        const id = `f_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+        const id = `f_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         const record = { id, name: file.name, type: file.type, size: file.size, dataUrl: e.target.result };
+        // Save to IndexedDB locally
         this._open().then(db => {
           const tx = db.transaction('files', 'readwrite');
           tx.objectStore('files').add(record);
           tx.oncomplete = () => resolve(id);
           tx.onerror = () => reject(tx.error);
         }).catch(reject);
+        // Save to Firestore for cross-device access
+        if (CloudSync.uid && CloudSync.db) {
+          this._cloudCol().doc(id).set(record).catch(console.error);
+        }
       };
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(file);
@@ -223,20 +232,38 @@ const FileDB = {
   },
 
   get(id) {
-    return this._open().then(db => new Promise((resolve, reject) => {
+    return this._open().then(db => new Promise(resolve => {
       const req = db.transaction('files', 'readonly').objectStore('files').get(id);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        if (req.result) return resolve(req.result);
+        // Not in local IndexedDB — fetch from Firestore
+        if (!CloudSync.uid || !CloudSync.db) return resolve(null);
+        this._cloudCol().doc(id).get()
+          .then(doc => {
+            if (!doc.exists) return resolve(null);
+            const record = doc.data();
+            // Cache locally for next time
+            this._open().then(db2 => {
+              const tx = db2.transaction('files', 'readwrite');
+              tx.objectStore('files').put(record);
+            });
+            resolve(record);
+          })
+          .catch(() => resolve(null));
+      };
+      req.onerror = () => resolve(null);
     }));
   },
 
   delete(id) {
-    return this._open().then(db => new Promise((resolve, reject) => {
+    this._open().then(db => {
       const tx = db.transaction('files', 'readwrite');
       tx.objectStore('files').delete(id);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    }));
+    });
+    if (CloudSync.uid && CloudSync.db) {
+      this._cloudCol().doc(id).delete().catch(() => {});
+    }
+    return Promise.resolve();
   }
 };
 
