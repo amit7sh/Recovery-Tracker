@@ -208,23 +208,52 @@ const FileDB = {
     return CloudSync.db.collection('users').doc(CloudSync.uid).collection('files');
   },
 
+  // Compress images to stay under Firestore's 1MB document limit
+  _compress(dataUrl, type) {
+    return new Promise(resolve => {
+      if (!type.startsWith('image/')) return resolve(dataUrl);
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 1000;
+        let { width: w, height: h } = img;
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+          else       { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.7));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  },
+
   save(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = e => {
         const id = `f_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const record = { id, name: file.name, type: file.type, size: file.size, dataUrl: e.target.result };
-        // Save to IndexedDB locally
-        this._open().then(db => {
-          const tx = db.transaction('files', 'readwrite');
-          tx.objectStore('files').add(record);
-          tx.oncomplete = () => resolve(id);
-          tx.onerror = () => reject(tx.error);
-        }).catch(reject);
-        // Save to Firestore for cross-device access
-        if (CloudSync.uid && CloudSync.db) {
-          this._cloudCol().doc(id).set(record).catch(console.error);
-        }
+        this._compress(e.target.result, file.type).then(dataUrl => {
+          const record = { id, name: file.name, type: file.type, size: file.size, dataUrl };
+          // Save to IndexedDB locally
+          this._open().then(db => {
+            const tx = db.transaction('files', 'readwrite');
+            tx.objectStore('files').add(record);
+            tx.oncomplete = () => resolve(id);
+            tx.onerror = () => reject(tx.error);
+          }).catch(reject);
+          // Save to Firestore for cross-device access
+          if (CloudSync.uid && CloudSync.db) {
+            // Check size — Firestore limit is ~1MB per document
+            if (dataUrl.length < 900000) {
+              this._cloudCol().doc(id).set(record).catch(console.error);
+            } else {
+              showToast('File too large to sync — saved locally only.');
+            }
+          }
+        });
       };
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(file);
