@@ -107,6 +107,8 @@ const CloudSync = {
           document.getElementById('sidebar-user-name').textContent = `${ownerName}'s tracker`;
           document.getElementById('sidebar-sync-label').textContent = '👁 Shared access';
           document.getElementById('share-access-btn').classList.add('hidden');
+          const mobileBtn = document.getElementById('mobile-share-btn');
+          if (mobileBtn) mobileBtn.classList.add('hidden');
         } else {
           this.uid = user.uid;
           this.isShared = false;
